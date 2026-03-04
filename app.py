@@ -24,9 +24,9 @@ st.write("Upload a PDF and ask questions about its content.")
 @st.cache_resource
 def load_llm():
     pipe = pipeline(
-        "text2text-generation",
+        "text-generation",
         model="google/flan-t5-base",
-        max_length=512
+        max_new_tokens=256
     )
     return HuggingFacePipeline(pipeline=pipe)
 
