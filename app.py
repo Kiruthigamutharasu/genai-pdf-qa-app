@@ -5,8 +5,12 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.chains.retrieval_qa.base import RetrievalQA
 from langchain_community.llms import HuggingFacePipeline
+
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.chains import create_retrieval_chain
+
+from langchain_core.prompts import ChatPromptTemplate
 
 from transformers import pipeline
 
@@ -21,7 +25,7 @@ st.title("📄 GenAI PDF Question Answering App")
 st.write("Upload a PDF and ask questions about its content.")
 
 
-# Load LLM only once
+# Load model once
 @st.cache_resource
 def load_llm():
 
@@ -31,9 +35,7 @@ def load_llm():
         max_length=512
     )
 
-    llm = HuggingFacePipeline(pipeline=pipe)
-
-    return llm
+    return HuggingFacePipeline(pipeline=pipe)
 
 
 llm = load_llm()
@@ -60,25 +62,31 @@ if uploaded_file:
 
     docs = splitter.split_documents(documents)
 
-
     embeddings = HuggingFaceEmbeddings(
         model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
 
-
     vectorstore = FAISS.from_documents(docs, embeddings)
 
+    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
-    retriever = vectorstore.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k": 3}
+
+    prompt = ChatPromptTemplate.from_template(
+        """
+        Answer the question based only on the provided context.
+
+        Context:
+        {context}
+
+        Question:
+        {input}
+        """
     )
 
 
-    qa_chain = RetrievalQA.from_chain_type(
-        llm=llm,
-        retriever=retriever
-    )
+    question_answer_chain = create_stuff_documents_chain(llm, prompt)
+
+    rag_chain = create_retrieval_chain(retriever, question_answer_chain)
 
 
     query = st.text_input("Ask a question about the document")
@@ -87,7 +95,7 @@ if uploaded_file:
 
         with st.spinner("Generating answer..."):
 
-            result = qa_chain.run(query)
+            response = rag_chain.invoke({"input": query})
 
         st.subheader("Answer")
-        st.write(result)
+        st.write(response["answer"])
