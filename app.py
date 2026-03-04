@@ -7,11 +7,6 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.llms import HuggingFacePipeline
 
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain.chains import create_retrieval_chain
-
-from langchain_core.prompts import ChatPromptTemplate
-
 from transformers import pipeline
 
 
@@ -25,16 +20,14 @@ st.title("📄 GenAI PDF Question Answering App")
 st.write("Upload a PDF and ask questions about its content.")
 
 
-# Load model once
+# Load LLM once
 @st.cache_resource
 def load_llm():
-
     pipe = pipeline(
         "text2text-generation",
         model="google/flan-t5-base",
         max_length=512
     )
-
     return HuggingFacePipeline(pipeline=pipe)
 
 
@@ -55,6 +48,7 @@ if uploaded_file:
     loader = PyPDFLoader(temp_path)
     documents = loader.load()
 
+
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=800,
         chunk_overlap=150
@@ -62,40 +56,36 @@ if uploaded_file:
 
     docs = splitter.split_documents(documents)
 
+
     embeddings = HuggingFaceEmbeddings(
         model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
 
+
     vectorstore = FAISS.from_documents(docs, embeddings)
-
-    retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
-
-
-    prompt = ChatPromptTemplate.from_template(
-        """
-        Answer the question based only on the provided context.
-
-        Context:
-        {context}
-
-        Question:
-        {input}
-        """
-    )
-
-
-    question_answer_chain = create_stuff_documents_chain(llm, prompt)
-
-    rag_chain = create_retrieval_chain(retriever, question_answer_chain)
 
 
     query = st.text_input("Ask a question about the document")
 
     if query:
 
-        with st.spinner("Generating answer..."):
+        with st.spinner("Searching document..."):
 
-            response = rag_chain.invoke({"input": query})
+            results = vectorstore.similarity_search(query, k=3)
+
+            context = "\n\n".join([doc.page_content for doc in results])
+
+            prompt = f"""
+            Use the following context to answer the question.
+
+            Context:
+            {context}
+
+            Question:
+            {query}
+            """
+
+            answer = llm.invoke(prompt)
 
         st.subheader("Answer")
-        st.write(response["answer"])
+        st.write(answer)
